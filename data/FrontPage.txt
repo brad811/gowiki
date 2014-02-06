@@ -1,1 +1,1 @@
-This is the front page.
+This is the front page. [test] <a href="/">link</a>

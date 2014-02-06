@@ -8,17 +8,15 @@ import (
 	"regexp"
 )
 
-var templates = template.Must(template.ParseFiles("tmpl/edit.html", "tmpl/view.html"))
-var validPath = regexp.MustCompile("^/(edit|save|view)/([a-zA-Z0-9]+)$")
-
 type Page struct {
 	Title string
-	Body []byte
+	RawBody []byte
+	Body template.HTML
 }
 
 func (p *Page) save() error {
 	filename := "data/" + p.Title + ".txt"
-	return ioutil.WriteFile(filename, p.Body, 0600)
+	return ioutil.WriteFile(filename, p.RawBody, 0600)
 }
 
 func loadPage(title string) (*Page, error) {
@@ -27,15 +25,31 @@ func loadPage(title string) (*Page, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Page{Title: title, Body: body}, nil
+
+	return &Page{Title: title, RawBody: body}, nil
 }
 
+var templates = template.Must(template.ParseFiles("tmpl/edit.html", "tmpl/view.html"))
+var pageLink = regexp.MustCompile("\\[[a-zA-Z0-9]+\\]")
+
 func renderTemplate(w http.ResponseWriter, tmpl string, p *Page) {
+	if(tmpl != "edit") {
+		p.RawBody = []byte(template.HTMLEscapeString(string(p.RawBody)))
+		p.RawBody = pageLink.ReplaceAllFunc(p.RawBody, func(s []byte) []byte {
+			stringBody := string(s)
+			stringBody = stringBody[1:len(stringBody)-1]
+			return []byte("<a href='/view/" + stringBody + "'>" + stringBody + "</a>")
+		})
+	}
+	p.Body = template.HTML(p.RawBody)
+
 	err := templates.ExecuteTemplate(w, tmpl+".html", p)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
+
+var validPath = regexp.MustCompile("^/(edit|save|view)/([a-zA-Z0-9]+)$")
 
 func makeHandler(fn func (http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +90,7 @@ func editHandler(w http.ResponseWriter, r *http.Request, title string) {
 
 func saveHandler(w http.ResponseWriter, r *http.Request, title string) {
 	body := r.FormValue("body")
-	p := &Page{Title: title, Body: []byte(body)}
+	p := &Page{Title: title, RawBody: []byte(body)}
 	err := p.save()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
